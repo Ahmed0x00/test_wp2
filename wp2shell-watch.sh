@@ -1,23 +1,33 @@
 #!/usr/bin/env bash
-# wp2shell-watch.sh — watches a directory for new .txt files,
-# runs wp2shell-check.sh on each domain, saves results.
+# wp2shell-watch.sh — scans domains.txt and sends results to Telegram
 
 set -euo pipefail
 
-WATCH_DIR="${1:-/home/ahmex/test/us_senior_web_research/output}"
-RESULTS_DIR="/home/ahmex/WP2Shell/results"
-SCRIPT="/home/ahmex/WP2Shell/wp2shell-check.sh"
-PROCESSED_LOG="$RESULTS_DIR/.processed"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+DOMAINS_FILE="${1:-$SCRIPT_DIR/domains.txt}"
+RESULTS_DIR="$SCRIPT_DIR/results"
+SCRIPT="$SCRIPT_DIR/wp2shell-check.sh"
 SCANNED_DOMAINS="$RESULTS_DIR/.scanned_domains"
-POLL_INTERVAL=10  # seconds
 
 # Telegram (set these or export as env vars)
-# TG_CHAT_ID can be multiple IDs separated by spaces
 TG_TOKEN="${TG_TOKEN:-}"
 TG_CHAT_ID="${TG_CHAT_ID:-}"
 
+if [[ -z "$TG_TOKEN" || -z "$TG_CHAT_ID" ]]; then
+  echo "Error: set TG_TOKEN and TG_CHAT_ID" >&2
+  echo "Usage: TG_TOKEN=... TG_CHAT_ID=... ./wp2shell-watch.sh [domains.txt]" >&2
+  exit 1
+fi
+
+if [[ ! -f "$DOMAINS_FILE" ]]; then
+  echo "Error: domains file not found: $DOMAINS_FILE" >&2
+  exit 1
+fi
+
+mkdir -p "$RESULTS_DIR"
+touch "$SCANNED_DOMAINS"
+
 tg_send() {
-  [[ -z "$TG_TOKEN" || -z "$TG_CHAT_ID" ]] && return
   for chat_id in $TG_CHAT_ID; do
     curl -s -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
       -d chat_id="$chat_id" \
@@ -26,72 +36,57 @@ tg_send() {
   done
 }
 
-mkdir -p "$RESULTS_DIR"
-touch "$PROCESSED_LOG"
-touch "$SCANNED_DOMAINS"
+# filter already-scanned domains
+new_domains=$(mktemp)
+while IFS= read -r domain; do
+  domain="${domain%%#*}"
+  domain="${domain#"${domain%%[![:space:]]*}"}"
+  domain="${domain%"${domain##*[![:space:]]}"}"
+  [[ -z "$domain" ]] && continue
+  if ! grep -qFx "$domain" "$SCANNED_DOMAINS" 2>/dev/null; then
+    echo "$domain" >> "$new_domains"
+  fi
+done < "$DOMAINS_FILE"
 
-echo "[*] Watching $WATCH_DIR for new .txt files (poll every ${POLL_INTERVAL}s)"
+new_count=$(wc -l < "$new_domains" | tr -d ' ')
+total_count=$(grep -c '[^ ]' "$DOMAINS_FILE" 2>/dev/null || echo 0)
+already=$((total_count - new_count))
 
-while true; do
-  for txt in "$WATCH_DIR"/*.txt; do
-    [ -f "$txt" ] || continue
+echo "[*] Total domains: $total_count"
+echo "[*] Already scanned: $already"
+echo "[*] New to scan: $new_count"
 
-    # skip already processed
-    if grep -qFx "$txt" "$PROCESSED_LOG" 2>/dev/null; then
-      continue
-    fi
+if [[ "$new_count" -eq 0 ]]; then
+  echo "[+] Nothing to scan"
+  rm -f "$new_domains"
+  exit 0
+fi
 
-    basename="${txt##*/}"
-    timestamp=$(date +%Y%m%d_%H%M%S)
-    result_file="$RESULTS_DIR/${basename%.txt}_${timestamp}.json"
-    text_file="$RESULTS_DIR/${basename%.txt}_${timestamp}.txt"
+tg_send "🔍 <b>Starting scan</b> — <code>$new_count</code> new domains (<code>$already</code> already done)"
 
-    echo "[+] New file detected: $basename"
-    echo "[+] Scanning domains..."
-    tg_send "🔍 <b>New scan started:</b> <code>$basename</code>"
+# mark before scanning
+cat "$new_domains" >> "$SCANNED_DOMAINS"
 
-    # filter out already-scanned domains
-    new_domains=$(mktemp)
-    while IFS= read -r domain; do
-      domain="${domain%%#*}"
-      domain="${domain#"${domain%%[![:space:]]*}"}"
-      domain="${domain%"${domain##*[![:space:]]}"}"
-      [[ -z "$domain" ]] && continue
-      if ! grep -qFx "$domain" "$SCANNED_DOMAINS" 2>/dev/null; then
-        echo "$domain" >> "$new_domains"
-      fi
-    done < "$txt"
+# scan and send results
+vuln_count=0
+likely_count=0
+total_scanned=0
 
-    new_count=$(wc -l < "$new_domains" | tr -d ' ')
-    if [[ "$new_count" -eq 0 ]]; then
-      echo "[+] All domains already scanned, skipping"
-      echo "$txt" >> "$PROCESSED_LOG"
-      rm -f "$new_domains"
-      continue
-    fi
+"$SCRIPT" -f "$new_domains" --simple --no-color 2>/dev/null | while IFS= read -r line; do
+  echo "$line"
+  echo "$line" >> "$RESULTS_DIR/results.txt"
+  total_scanned=$((total_scanned + 1))
 
-    echo "[+] $new_count new domains to scan (skipping already-scanned)"
+  if echo "$line" | grep -qE '\| VULNERABLE$'; then
+    vuln_count=$((vuln_count + 1))
+    tg_send "🔴 <code>$line</code>"
+  elif echo "$line" | grep -qE '\| LIKELY_VULNERABLE$'; then
+    likely_count=$((likely_count + 1))
+    tg_send "🟡 <code>$line</code>"
+  fi
+done || true
 
-    # mark domains as scanned BEFORE scanning (so killed runs don't lose progress)
-    cat "$new_domains" >> "$SCANNED_DOMAINS"
+rm -f "$new_domains"
 
-    # scan only new domains, print line by line AND save to file
-    "$SCRIPT" -f "$new_domains" --simple --no-color 2>/dev/null | while IFS= read -r line; do
-      echo "$line"
-      echo "$line" >> "$result_file"
-
-      # send only vulnerable/likely to telegram, skip clean/inconclusive
-      if echo "$line" | grep -qE '\| (VULNERABLE|LIKELY_VULNERABLE)$'; then
-        tg_send "⚠️ <code>$line</code>"
-      fi
-    done || true
-
-    rm -f "$new_domains"
-
-    echo "[+] Done: $basename — $new_count new domains scanned"
-    tg_send "✅ <b>Scan complete:</b> <code>$basename</code> ($new_count new domains)"
-    echo "$txt" >> "$PROCESSED_LOG"
-  done
-
-  sleep "$POLL_INTERVAL"
-done
+echo "[+] Done — scanned $new_count domains"
+tg_send "✅ <b>Scan complete</b> — <code>$new_count</code> domains scanned"
