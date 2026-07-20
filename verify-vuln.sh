@@ -8,6 +8,19 @@ UA="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrom
 RESULTS_DIR="$(dirname "$0")/results"
 mkdir -p "$RESULTS_DIR"
 
+TG_TOKEN="${TG_TOKEN:-}"
+TG_CHAT_ID="${TG_CHAT_ID:-}"
+
+tg_send() {
+  [[ -z "$TG_TOKEN" || -z "$TG_CHAT_ID" ]] && return
+  for chat_id in $TG_CHAT_ID; do
+    curl -s -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
+      -d chat_id="$chat_id" \
+      -d text="$1" \
+      -d parse_mode="HTML" > /dev/null 2>&1
+  done
+}
+
 verify_target() {
   local target="${1%/}"
   [[ "$target" =~ ^https?:// ]] || target="https://$target"
@@ -69,6 +82,7 @@ verify_target() {
   # Verdict
   if [[ $vuln -eq 1 ]]; then
     echo "  → CONFIRMED VULNERABLE"
+    tg_send "🔴 <b>CONFIRMED VULNERABLE</b>\n<code>$target</code>\npretty=$code1 query=$code2 xff=$code3 post=$code4"
   else
     echo "  → NOT CONFIRMED (WAF may be blocking)"
   fi
