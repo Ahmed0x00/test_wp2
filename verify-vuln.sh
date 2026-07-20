@@ -188,22 +188,47 @@ verify_target() {
     ver_in_range() { ver_ge "$1" "$2" && ver_ge "$3" "$1"; }
 
     if ver_in_range "$wp_ver" "6.8.0" "6.8.5"; then
-      if [[ $batch_ok -eq 1 ]]; then
+      if [[ $batch_ok -eq 1 ]] && [[ "$rest_users" == "ACCESSIBLE" ]]; then
         severity="CRITICAL"
-        verdict="VULNERABLE (WP $wp_ver, batch endpoint reachable)"
+        verdict="VULNERABLE (WP $wp_ver, batch + REST accessible)"
+      elif [[ $batch_ok -eq 1 ]]; then
+        severity="HIGH"
+        verdict="LIKELY VULNERABLE (WP $wp_ver, batch reachable, REST blocked)"
       elif [[ "$rest_users" == "ACCESSIBLE" ]]; then
         severity="HIGH"
-        verdict="LIKELY VULNERABLE (WP $wp_ver, REST users enumerable)"
+        verdict="LIKELY VULNERABLE (WP $wp_ver, REST accessible, batch blocked)"
       else
-        severity="MEDIUM"
-        verdict="POSSIBLY VULNERABLE (WP $wp_ver, batch WAF-blocked)"
+        severity="LOW"
+        verdict="NOT EXPLOITABLE (WP $wp_ver, all endpoints blocked)"
       fi
     elif ver_in_range "$wp_ver" "6.9.0" "6.9.4"; then
-      severity="CRITICAL"
-      verdict="VULNERABLE (WP $wp_ver, RCE chain reachable)"
+      if [[ $batch_ok -eq 1 ]] && [[ "$rest_users" == "ACCESSIBLE" ]]; then
+        severity="CRITICAL"
+        verdict="VULNERABLE (WP $wp_ver, RCE chain reachable)"
+      elif [[ $batch_ok -eq 1 ]]; then
+        severity="HIGH"
+        verdict="LIKELY VULNERABLE (WP $wp_ver, batch reachable)"
+      elif [[ "$rest_users" == "ACCESSIBLE" ]]; then
+        severity="HIGH"
+        verdict="LIKELY VULNERABLE (WP $wp_ver, REST accessible)"
+      else
+        severity="LOW"
+        verdict="NOT EXPLOITABLE (WP $wp_ver, all endpoints blocked)"
+      fi
     elif ver_in_range "$wp_ver" "7.0.0" "7.0.1"; then
-      severity="CRITICAL"
-      verdict="VULNERABLE (WP $wp_ver, RCE chain reachable)"
+      if [[ $batch_ok -eq 1 ]] && [[ "$rest_users" == "ACCESSIBLE" ]]; then
+        severity="CRITICAL"
+        verdict="VULNERABLE (WP $wp_ver, RCE chain reachable)"
+      elif [[ $batch_ok -eq 1 ]]; then
+        severity="HIGH"
+        verdict="LIKELY VULNERABLE (WP $wp_ver, batch reachable)"
+      elif [[ "$rest_users" == "ACCESSIBLE" ]]; then
+        severity="HIGH"
+        verdict="LIKELY VULNERABLE (WP $wp_ver, REST accessible)"
+      else
+        severity="LOW"
+        verdict="NOT EXPLOITABLE (WP $wp_ver, all endpoints blocked)"
+      fi
     else
       severity="SAFE"
       verdict="NOT VULNERABLE (WP $wp_ver, patched version)"
