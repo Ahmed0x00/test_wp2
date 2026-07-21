@@ -20,7 +20,7 @@ while IFS= read -r domain || [[ -n "$domain" ]]; do
 
   result=$(python3 "$SCRIPT_DIR/wp2shell.py" check "https://$domain" 2>&1)
 
-  if echo "$result" | grep -q "full RCE chain"; then
+  if echo "$result" | grep -q "full RCE chain" && echo "$result" | grep -q "Route confusion ACTIVE"; then
     echo "🔴 $domain"
     echo "$domain" >> "$RESULTS_DIR/confirmed.txt"
     curl -s -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
